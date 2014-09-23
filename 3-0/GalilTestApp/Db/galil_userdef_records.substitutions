@@ -34,13 +34,14 @@
 
 # DRVCMD = VAR (GalilStr is a galil variable)
 # DRVCMD = CMD (GalilStr is a galil command)
+## Note: at the moment DRVCMD is ignored, only VAR (galil variable) is allowed
+## we might later extend to allow commands if needed, and replace USERVAR by USER$(DRVCMD) in galil_userdef_records.template plus associated asyn parameter support etc
+## If you need to send a command, galil_ctrl_extras.template defines a SEND_CMD_STR process variable to send an arbitrary controller command and CMD_STR_OUT for its output
 
-
-file "$(GALIL)/db/galil_userdef_records.template"
+file "$(GALIL)/GalilSup/Db/galil_userdef_records.template"
 {
 pattern
-{ P,               EPICSName,            GalilStr, DRVCMD, SCAN,        DRVL, DRVH, LOW,  HIGH, LSV,     HSV,     ZNAM,      ONAM,  ZSV,        OSV,        C, DEFAULT, EGU,  PINI}
-#{"SR08ID01WFS01", "EXPOSURE_TIME",      "expsT",  "VAR"   ".1 second", 1,    1000, 1,    1000, "MINOR", "MINOR", "Invalid", "Ok",  "MAJOR",    "NO_ALARM", 0, "10",    "ms", "YES"}
-}
-
+{ P, PORT, ADDR, EPICSName, GalilStr, DRVCMD, SCAN, DRVL, DRVH, LOW,  HIGH, LSV, HSV,     ZNAM,      ONAM,  ZSV,        OSV,        C, DEFAULT, EGU,  PINI }
+# {"SR08ID01WFS01", "Galil", 0, "EXPOSURE_TIME",      "expsT",  "VAR"   ".1 second", 1,    1000, 1,    1000, "MINOR", "MINOR", "Invalid", "Ok",  "MAJOR",    "NO_ALARM", 0, "10",    "ms", "YES"}
+}  
 # end
