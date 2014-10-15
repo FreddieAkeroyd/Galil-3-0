@@ -452,9 +452,16 @@ asynStatus GalilAxis::move(double position, int relative, double minVelocity, do
   pC_->getIntegerParam(axisNo_, pC_->GalilWrongLimitProtection_, &wlp);
   pC_->getIntegerParam(axisNo_, pC_->GalilWrongLimitProtectionActive_, &wlpactive);
 
-  if ((wlp && wlpactive) || (lrint(maxVelocity) == 0))
+  if (wlp && wlpactive)
+  {
+    std::cout << functionName << " failed, wrong limit protection active for axis " << axisName_ << std::endl;
 	return asynSuccess;  //Nothing to do
-  
+  }
+  if (lrint(maxVelocity) == 0)
+  {
+    std::cout << functionName << " failed, maxVelocity=0 for axis " << axisName_ << std::endl;
+	return asynSuccess;  //Nothing to do
+  }
   //Ensure home flag is 0
   sprintf(pC_->cmd_, "home%c=0", axisName_);
   pC_->writeReadController(functionName);
@@ -553,8 +560,16 @@ asynStatus GalilAxis::home(double minVelocity, double maxVelocity, double accele
   pC_->getIntegerParam(axisNo_, pC_->GalilWrongLimitProtection_, &wlp);
   pC_->getIntegerParam(axisNo_, pC_->GalilWrongLimitProtectionActive_, &wlpactive);
 
-  if ((wlp && wlpactive) || (lrint(maxVelocity) == 0))
-	return asynSuccess;  //Nothing to do 
+  if (wlp && wlpactive)
+  {
+    std::cout << functionName << " failed, wrong limit protection active for axis " << axisName_ << std::endl;
+	return asynSuccess;  //Nothing to do
+  }
+  if (lrint(maxVelocity) == 0)
+  {
+    std::cout << functionName << " failed, maxVelocity=0 for axis " << axisName_ << std::endl;
+	return asynSuccess;  //Nothing to do
+  }
 
   //Home only if interlock ok
   if (motor_enabled())
@@ -664,8 +679,16 @@ asynStatus GalilAxis::moveVelocity(double minVelocity, double maxVelocity, doubl
   pC_->getIntegerParam(axisNo_, pC_->GalilWrongLimitProtection_, &wlp);
   pC_->getIntegerParam(axisNo_, pC_->GalilWrongLimitProtectionActive_, &wlpactive);
 
-  if ((wlp && wlpactive) || (lrint(maxVelocity) == 0))
-	return asynSuccess;  //Nothing to do 
+  if (wlp && wlpactive)
+  {
+    std::cout << functionName << " failed, wrong limit protection active for axis " << axisName_ << std::endl;
+	return asynSuccess;  //Nothing to do
+  }
+  if (lrint(maxVelocity) == 0)
+  {
+    std::cout << functionName << " failed, maxVelocity=0 for axis " << axisName_ << std::endl;
+	return asynSuccess;  //Nothing to do
+  }
 
   //Check interlock status before allowing move
   if (motor_enabled())
@@ -995,7 +1018,7 @@ asynStatus GalilAxis::getStatus(void)
 	//Allows us to poll without lock
 	catch (const std::bad_typeid& e)
 		{
-		cout << "Caught bad_typeid GalilAxis::getStatus" << endl;
+		cout << "Caught bad_typeid GalilAxis::getStatus " << e.what() << endl;
 		}
 	}
   return pC_->recstatus_;
@@ -1006,7 +1029,7 @@ asynStatus GalilAxis::getStatus(void)
 bool GalilAxis::setStatus(void)
 {
   double eres, edel;		//motorRecord eres, and GalilEncoderDeadB_ (edel) Param
-  int encoder_direction;	//Determined encoder move direction
+  int encoder_direction = 0;	//Determined encoder move direction
   bool moving;			//Determined moving status to pass to motorRecord
   
   //Default moving status
@@ -1112,6 +1135,7 @@ void GalilAxis::checkEncoder(void)
             //Flag the motor has been stopped
             stopExecuted_ = true;
             //Inform user
+			std::cout << "Slip/stall detected, estall time = " << pestall_time << "(limit=" << estall_time << ") stopping axis " << axisName_ << std::endl;
             sprintf(message, "Encoder stall stop motor %c", axisName_);
             //Set controller error mesg monitor
             pC_->setStringParam(0, pC_->GalilCtrlError_, message);
@@ -1144,6 +1168,8 @@ void GalilAxis::wrongLimitProtection(void)
             //Flag the motor has been stopped
             stopExecuted_ = true;
             //Inform user
+			std::cout << "Wrong limit protection activated, stopping axis "<< axisName_ << std::endl;
+			std::cout << "You can disable this protection by setting $(MOTOR)_WLP_CMD to 0" << std::endl;
             sprintf(message, "Wrong limit protect stop motor %c", axisName_);
             //Set controller error mesg monitor
             pC_->setStringParam(0, pC_->GalilCtrlError_, message);

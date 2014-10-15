@@ -20,6 +20,8 @@
 #ifndef GalilController_H
 #define GalilController_H
 
+#include "macLib.h"
+
 #include "GalilAxis.h"
 #include "GalilCSAxis.h"
 #include "GalilConnector.h"
@@ -132,6 +134,9 @@
 #define GalilUserOctetValString		"USER_OCTET_VAL"
 #define GalilUserVarString		"USER_VAR"
 
+#define GalilEthAddrString		  	"CONTROLLER_ETHADDR"
+#define GalilSerialNumString		  	"CONTROLLER_SERIALNUM"
+
 /* For each digital input, we maintain a list of motors, and the state the input should be in*/
 /* To disable the motor */
 struct Galilmotor_enables {
@@ -149,6 +154,7 @@ public:
   asynStatus writeInt32(asynUser *pasynUser, epicsInt32 value);
   asynStatus writeFloat64(asynUser *pasynUser, epicsFloat64 value);
   asynStatus writeOctet(asynUser *pasynUser, const char*  value,  size_t  nChars,  size_t *  nActual);
+  asynStatus readOctet(asynUser* pasynUser,  char* value, size_t maxChars,  size_t* nActual,  int* eomReason);
   asynStatus readInt32(asynUser *pasynUser, epicsInt32 *value);
   asynStatus readFloat64(asynUser *pasynUser, epicsFloat64 *value);
   asynStatus drvUserCreate(asynUser *pasynUser, const char* drvInfo, const char** pptypeName, size_t* psize); 
@@ -183,7 +189,7 @@ public:
   void executeAutoOn(const char *axes);
 
   /* These are the methods that are new to this class */
-  void GalilStartController(char *code_file, int eeprom_write, int display_code);
+  void GalilStartController(char *code_file, int eeprom_write, int display_code, unsigned thread_mask);
   void connectManager(void);
   void connect(void);
   void connected(void);
@@ -192,8 +198,9 @@ public:
   void setParamDefaults(void);
   void gen_card_codeend(void);
   void gen_motor_enables_code(void);
-  void write_gen_codefile(void);
+  void write_gen_codefile(const char* suffix);
   void read_codefile(const char *code_file);
+  void read_codefile_part(const char *code_file, MAC_HANDLE* mac_handle);
   asynStatus writeReadController(const char *caller);
   void check_comms(bool reqd_comms, asynStatus status);
   asynStatus get_integer(int function, epicsInt32 *value, int axisNo);
@@ -289,6 +296,8 @@ protected:
   int GalilUserOctetVal_;
   int GalilUserVar_;
 //Add new parameters here
+  int GalilEthAddr_;
+  int GalilSerialNum_;
 
   int GalilCommunicationError_;
   #define LAST_GALIL_PARAM GalilCommunicationError_
@@ -299,8 +308,9 @@ private:
   GalilPoller *poller_;			//GalilPoller to acquire a datarecord
   char address_[256];			//address string
   char model_[256];			//model string
-  char code_file_[256];			//Code file that user gave to GalilStartController
+  char code_file_[2048];			//Code file that user gave to GalilStartController, large as may be a list of files
   int eeprom_write_;			//eeprom_write_ that user gave to GalilStartController
+  unsigned thread_mask_;			//Mask detailing which threads are expected to be running after program download 
   bool connect_fail_reported_;		//Has initial connection failure been reported to iocShell
   int consecutive_timeouts_;		//Used for connection management
   bool code_assembled_;			//Has code for the GalilController hardware been assembled
