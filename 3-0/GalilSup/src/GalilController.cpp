@@ -2811,7 +2811,7 @@ void GalilController::GalilStartController(char *code_file, int eeprom_write, in
 
 		//Copy card_code_ into download code buffer
 		dc = card_code_;
-		//Remove the \r characters - however are we open file with "rt" these should already have been removed
+		//Remove the \r characters
 		dc.erase (std::remove(dc.begin(), dc.end(), '\r'), dc.end());
 		//Remove ' characters
 		//commented out as removes from ' to end of file not end of line
