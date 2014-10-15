@@ -2793,7 +2793,7 @@ void GalilController::GalilStartController(char *code_file, int eeprom_write, in
 			//Remove the \r characters - \r\n is returned by galil controller
 			uc.erase (std::remove(uc.begin(), uc.end(), '\r'), uc.end());
 			//Remove ' characters
-		    //commented out as removes from ' to end of file not end of line
+		    //commented out as also needs to remove text from ' to end of that line
 //			uc.erase (std::remove(uc.begin(), uc.end(), '\''), uc.end());
 			}
 		catch (string e)
@@ -2814,7 +2814,7 @@ void GalilController::GalilStartController(char *code_file, int eeprom_write, in
 		//Remove the \r characters
 		dc.erase (std::remove(dc.begin(), dc.end(), '\r'), dc.end());
 		//Remove ' characters
-		//commented out as removes from ' to end of file not end of line
+		//commented out as also needs to remove text from ' to end of that line
 //		dc.erase (std::remove(dc.begin(), dc.end(), '\''), dc.end());
 
 		/*If generated code differs from controller current code then download generated code*/

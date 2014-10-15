@@ -1030,7 +1030,7 @@ bool GalilAxis::setStatus(void)
 {
   double eres, edel;		//motorRecord eres, and GalilEncoderDeadB_ (edel) Param
   int encoder_direction = 0;	//Determined encoder move direction
-  bool moving;			//Determined moving status to pass to motorRecord
+  bool moving = false;			//Determined moving status to pass to motorRecord
   
   //Default moving status
   motorMove_ = false;
