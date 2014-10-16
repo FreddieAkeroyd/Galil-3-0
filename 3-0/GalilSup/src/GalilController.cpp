@@ -3377,12 +3377,11 @@ asynStatus GalilController::drvUserCreate(asynUser *pasynUser, const char* drvIn
    char *drvInfocpy;				  //copy of drvInfo
    char *charstr;		                  //The current token
 
-   //take a copy of drvInfo
-   drvInfocpy = epicsStrDup((const char *)drvInfo);
-
    //Check if USER_CMD, USER_VAR, USER_OCTET, or USER_OCTET_VAL
-   if (strncmp(drvInfocpy, "USER_", 5) == 0)
+   if (strncmp(drvInfo, "USER_", 5) == 0)
      {
+     //take a copy of drvInfo
+     drvInfocpy = epicsStrDup((const char *)drvInfo);
      //split drvInfocpy into tokens
      //first token is DRVCMD = CMD, OCTET, OCTET_VAL, or VAR
      charstr = strtok((char *)drvInfocpy, " ");
@@ -3399,6 +3398,7 @@ asynStatus GalilController::drvUserCreate(asynUser *pasynUser, const char* drvIn
      //Store copy of GalilStr in pasynuser userdata
      if (charstr != NULL)
         pasynUser->userData = epicsStrDup(charstr);
+	 free(drvInfocpy);
      return asynSuccess;
      }
   else
