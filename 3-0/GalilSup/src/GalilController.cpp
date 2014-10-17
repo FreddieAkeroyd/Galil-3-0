@@ -2645,7 +2645,7 @@ asynStatus GalilController::writeReadController(const char *caller)
   bool done = false;
   asynStatus status;
   int ex_count;
-  static const char* debug_file_name = macEnvExpand("$(GALIL_DEBUG_FILE)");
+  static const char* debug_file_name = macEnvExpand("$(GALIL_DEBUG_FILE=)");
   static FILE* debug_file = ( (debug_file_name != NULL && strlen(debug_file_name) > 0) ? fopen(debug_file_name, "at") : NULL);
 
   asynPrint(this->pasynUserSelf, ASYN_TRACE_FLOW, 
