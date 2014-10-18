@@ -55,12 +55,16 @@ GalilAxis::GalilAxis(class GalilController *pC, //Pointer to controller instance
 		     char *enables_string,	//digital input(s) to use for motor enable/disable function
 		     int switch_type)		//motor enable/disable switch type
   : asynMotorAxis(pC, (toupper(axisname[0]) - AASCII)),
-    pC_(pC)
+    pC_(pC), pollRequest_(10, sizeof(int))
+
 {
   char axis_limit_code[LIMIT_CODE_LEN];   	//Code generated for limits interrupt on this axis
   char axis_digital_code[INP_CODE_LEN];	     	//Code generated for digital interrupt related to this axis
   char axis_thread_code[THREAD_CODE_LEN]; 	//Code generated for the axis (eg. home code, limits response)
- 
+
+  epicsTimeGetCurrent(&stop_begint_);
+  stop_nowt_ = stop_begint_;
+
   //Increment internal axis counter
   //Used to check start status of galil thread (on hardware) for this GalilAxis
   pC_->numAxes_++;
@@ -96,9 +100,6 @@ GalilAxis::GalilAxis(class GalilController *pC, //Pointer to controller instance
   strcat(pC->thread_code_, axis_thread_code);
   strcat(pC->limit_code_, axis_limit_code);
   strcat(pC->digital_code_, axis_digital_code);
-
-  //Create the event that wakes up the thread for servicing poll request to write to controller
-  pollRequestEvent_ = epicsEventMustCreate(epicsEventEmpty);
   
   // Create the thread that will service poll requests
   // To write to the controller
@@ -1130,8 +1131,7 @@ void GalilAxis::checkEncoder(void)
             setIntegerParam(pC_->motorStatusSlip_, 1);
             setIntegerParam(pC_->GalilEStall_, 1);
             //stop the motor
-            pollRequest_ = MOTOR_STOP;
-            epicsEventSignal(pollRequestEvent_);
+            pollRequest_.send((void*)&MOTOR_STOP, sizeof(int));
             //Flag the motor has been stopped
             stopExecuted_ = true;
             //Inform user
@@ -1163,8 +1163,7 @@ void GalilAxis::wrongLimitProtection(void)
             //Wrong limit protection actively stopping this motor now
             setIntegerParam(pC_->GalilWrongLimitProtectionActive_, 1);
             //Stop the motor if the wrong limit is active, AND wlp protection active
-            pollRequest_ = MOTOR_STOP;
-            epicsEventSignal(pollRequestEvent_);
+            pollRequest_.send((void*)&MOTOR_STOP, sizeof(int));
             //Flag the motor has been stopped
             stopExecuted_ = true;
             //Inform user
@@ -1192,18 +1191,8 @@ void GalilAxis::checkHoming(void)
    //Reset homing_ flag to false when stopped more than HOMING_RESET_DELAY secs
    if (homing_)
       {
-      if (done_ && !last_done_)
-         {
-         //Get time stop first detected
-         epicsTimeGetCurrent(&stop_begint_);
-         }
-      if (done_ && last_done_)
-         {
-         //Get time stopped for
-         epicsTimeGetCurrent(&stop_nowt_);
          if (epicsTimeDiffInSeconds(&stop_nowt_, &stop_begint_) >= HOMING_RESET_DELAY)
             homing_ = false;
-         }
       }
 }
 
@@ -1220,16 +1209,15 @@ void GalilAxis::pollServices(void)
 {
   static const char *functionName = "GalilAxis::pollServices";
   int autoonoff;			//Motor Auto on/off setting
-  double offdelay;			//Motor auto off delay in seconds
   char post[MAX_GALIL_STRING_SIZE];	//Motor record post field
-
+  int request = -1; // real service numbers start at 0
   while (true)
      {
      //Wait for poll to request a service
-     epicsEventWait(pollRequestEvent_);
+	 pollRequest_.receive(&request, sizeof(int));
      pC_->lock();
      //What did poll request
-     switch (pollRequest_)
+     switch (request)
         {
         case MOTOR_STOP: stop(1);
                          break;
@@ -1243,11 +1231,6 @@ void GalilAxis::pollServices(void)
                          break;
         case MOTOR_OFF:  if (pC_->getIntegerParam(axisNo_, pC_->GalilAutoOnOff_, &autoonoff) == asynSuccess)
                             {
-                            //Wait user specified time before executing auto motor off
-                            pC_->getDoubleParam(axisNo_, pC_->GalilAutoOffDelay_, &offdelay);
-                            pC_->unlock();
-                            epicsThreadSleep(offdelay);
-                            pC_->lock();
                             //Execute the motor off command
                             setClosedLoop(false);
                             }
@@ -1309,8 +1292,7 @@ void GalilAxis::executePost(void)
      if (!homing_ && last_done_ && done_ && strcmp(post, "") && !postExecuted_)
         {
         //Execute the post command
-        pollRequest_ = MOTOR_POST;
-        epicsEventSignal(pollRequestEvent_);
+        pollRequest_.send((void*)&MOTOR_POST, sizeof(int));
         postExecuted_ = true;
         }
 }
@@ -1320,14 +1302,16 @@ void GalilAxis::executePost(void)
 void GalilAxis::executeAutoOff(void)
 {
   int autoonoff;	//Motor auto power on/off setting
+  double offdelay;
 
   //Execute motor auto power off if activated
-  if (pC_->getIntegerParam(axisNo_, pC_->GalilAutoOnOff_, &autoonoff) == asynSuccess)
-     if (autoonoff && !homing_ && last_done_ && done_ && !autooffExecuted_)
+  if ( (pC_->getIntegerParam(axisNo_, pC_->GalilAutoOnOff_, &autoonoff) == asynSuccess) &&
+	   (pC_->getDoubleParam(axisNo_, pC_->GalilAutoOffDelay_, &offdelay) == asynSuccess) )
+     if ( autoonoff && !homing_ && !autooffExecuted_ &&
+		  (epicsTimeDiffInSeconds(&stop_nowt_, &stop_begint_) >= offdelay) )
         {
         //Execute the motor off command
-        pollRequest_ = MOTOR_OFF;
-        epicsEventSignal(pollRequestEvent_);
+        pollRequest_.send((void*)&MOTOR_OFF, sizeof(int));
         autooffExecuted_ = true;
         }
 }
@@ -1376,6 +1360,20 @@ asynStatus GalilAxis::poll(bool *moving)
    //Enforce wrong limit protection if enabled
    wrongLimitProtection();
 
+   if (done_ && !last_done_)
+   {
+         //Get time stop first detected
+         epicsTimeGetCurrent(&stop_begint_);
+   }
+   if (done_ && last_done_)
+   {
+         //Get time stopped for
+         epicsTimeGetCurrent(&stop_nowt_);
+   }
+   else
+   {
+	     stop_nowt_ = stop_begint_;
+   }
    //Reset homing now status if necessary
    checkHoming();
 
