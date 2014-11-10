@@ -440,6 +440,25 @@ void GalilController::setParamDefaults(void)
   setStringParam(GalilEthAddr_, "");
 }
 
+// extract the controller ethernet address from the output of the galil TH command
+// return 00-00-00-00-00-00 if unable to parse input string
+std::string GalilController::extractEthAddr(const char* str)
+{
+	static const std::string eth("ETHERNET ADDRESS");
+	std::string th(str);
+	size_t pos1 = th.find(eth);
+	size_t pos2 = th.find_first_of("\r\n"); // only want first line of TH output
+	if ( pos1 != std::string::npos && pos2 != std::string::npos )
+	{
+	    pos1 = pos1 + eth.size() + 1;
+	    return th.substr(pos1, pos2 - pos1);
+    }
+	else
+	{
+	    return "00-00-00-00-00-00";
+	}
+}
+
 //Anything that should be done once connection established
 //Read controller details, stop all motors and threads
 void GalilController::connected(void)
@@ -475,7 +494,7 @@ void GalilController::connected(void)
 	//Read Ethernet handle details
 	strcpy(cmd_, "TH");
 	writeReadController(functionName);
-	setStringParam(GalilEthAddr_, resp_);
+	setStringParam(GalilEthAddr_, extractEthAddr(resp_).c_str());
 
 	//Read serial number
 	strcpy(cmd_, "MG _BN");
