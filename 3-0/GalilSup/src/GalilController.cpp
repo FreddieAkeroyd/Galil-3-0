@@ -465,7 +465,7 @@ std::string GalilController::extractEthAddr(const char* str)
 //Read controller details, stop all motors and threads
 void GalilController::connected(void)
 {
-	static const char *functionName = "connected";
+	static const char *functionName = "connectefd";
 	char RV[] ={0x12,0x16,0x0};    		//Galil command string for model and firmware version query
   	unsigned i;
 
