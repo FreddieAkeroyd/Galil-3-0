@@ -78,16 +78,16 @@ static const char *driverName = "GalilController";
 static void GalilProfileThreadC(void *pPvt);
 
 //Single GalilConnector instance for all GalilControllers
-GalilConnector *connector;
+static GalilConnector *connector = NULL;
 
 //Block read functions during Iocinit
 //Prevent normal behaviour of output records getting/reading initial value at iocInit from driver
 //Instead output records will write their db default or autosave value just after iocInit
 //This change in behaviour is anticipated by the asyn record device layer and causes no error mesgs
-bool dbInitialized = false;
+static bool dbInitialized = false;
 
 //Print the library version once per driver
-bool libverPrinted = false;
+static bool libverPrinted = false;
 
 //Number of communication retries
 #define MAX_RETRIES 1
@@ -105,17 +105,14 @@ bool libverPrinted = false;
 #endif
 
 //EPICS exit handler
-extern "C" void shutdownCallback(void *pPvt)
+static void shutdownCallback(void *pPvt)
 {
-  GalilController *pC_ = static_cast<GalilController *>(pPvt);
-
-  pC_->lock();
-  pC_->shuttingDown_ = 1;
-  pC_->unlock();
+  delete connector; // this will close all connections and delete GalilController etc 
+  connector = NULL; 
 }
 
 //EPICS iocInit status
-extern "C" void myHookFunction(initHookState state)
+static void myHookFunction(initHookState state)
 {
   //Update dbInitialized status for all GalilController instances
   if (state >= initHookAfterInitDatabase)
@@ -126,6 +123,7 @@ extern "C" void myHookFunction(initHookState state)
   * \param[in] portName          The name of the asyn port that will be created for this driver
   * \param[in] address      	 The name or address to provide to Galil communication library 
   * \param[in] updatePeriod  	 The time between polls when any axis is moving 
+  *                              If (updatePeriod < 0), polled/synchronous at abs(updatePeriod) is done regardless of bus type
   */
 GalilController::GalilController(const char *portName, const char *address, double updatePeriod)
   :  asynMotorController(portName, (int)(MAX_GALIL_AXES + MAX_GALIL_CSAXES), (int)NUM_GALIL_PARAMS,	//MAX_GALIL_AXES paramLists are needed for binary IO at all times
@@ -256,7 +254,7 @@ GalilController::GalilController(const char *portName, const char *address, doub
   //We have not recieved a timeout yet
   consecutive_timeouts_ = 0;
   //Store period in ms between data records
-  updatePeriod_ = updatePeriod;
+  updatePeriod_ = fabs(updatePeriod);
   //Code generator has not been initialized
   codegen_init_ = false;		
   digitalinput_init_ = false;
@@ -275,11 +273,14 @@ GalilController::GalilController(const char *portName, const char *address, doub
   strcpy(digital_code_, "");
   strcpy(card_code_, "");
  
+  if (updatePeriod < 0) {
+      try_async_ = false;
+  } else {
+      try_async_ = true;
+  }
+
   //Set defaults in Paramlist before connect
   setParamDefaults();
-
-  /* Set an EPICS exit handler that will shut down polling before exit */
-  epicsAtExit(shutdownCallback, this);
 
   //Thread to acquire datarecord for a single GalilController
   //We write our own because epicsEventWaitWithTimeout in asynMotorController::asynMotorPoller calls sleep, we dont want that.
@@ -295,6 +296,8 @@ GalilController::GalilController(const char *portName, const char *address, doub
 	connector = new GalilConnector();
 	//Register for iocInit state updates, so we can keep track of iocInit status
 	initHookRegister(myHookFunction);
+    // Set an EPICS exit handler that will shut down polling and clean up connections before exit 
+    epicsAtExit(shutdownCallback, NULL);
 	}
 
   //Register this GalilController instance with GalilConnector for connection management
@@ -321,6 +324,22 @@ GalilController::GalilController(const char *portName, const char *address, doub
 	strcpy(motor_enables->motors, "");
 	strcpy(motor_enables->disablestates, "");
 	}
+}
+
+void GalilController::shutdownController()
+{
+	if (poller_ != NULL)
+	{
+		delete poller_;
+		poller_ = NULL;
+	}
+	// we do not delete gco_ here - it must be done from GalilConnector via a call to disconnect() 
+	// as it has to be executed from the correct thread (the one that first loaded Galil1.dll and made the connection)
+}
+
+GalilController::~GalilController()
+{
+	shutdownController();
 }
 
 //Calls GalilController::connect when needed.
@@ -354,22 +373,26 @@ void GalilController::connectManager(void)
 	 }
 }
 
+void GalilController::disconnect(void)
+{
+	if (gco_ != NULL)
+	{
+	    //Delete reference to Galil communication class.  This runs galil communication class destructor
+	    delete gco_;
+	    //Stop GalilController class use of Galil communication object
+	    gco_ = NULL;
+	    //Print brief disconnection details
+	    cout << "Disconnected from " << model_ << " at " << address_ << endl;
+	}
+}
+
 //Disconnection/connection management
 void GalilController::connect(void)
 {
   static const char *functionName = "connect";
 
   //Close connection if its open
-  if (gco_ != NULL)
-	{
-	//Delete reference to Galil communication class.  This runs galil communication class destructor
-	delete gco_;
-	//Stop GalilController class use of Galil communication object
-	gco_ = NULL;
-	//Print brief disconnection details
-	cout << "Disconnected from " << model_ << " at " << address_ << endl;
-	}
-
+  disconnect();
   //Attempt connection
   try	
 	{
@@ -465,7 +488,7 @@ std::string GalilController::extractEthAddr(const char* str)
 //Read controller details, stop all motors and threads
 void GalilController::connected(void)
 {
-	static const char *functionName = "connectefd";
+	static const char *functionName = "connected";
 	char RV[] ={0x12,0x16,0x0};    		//Galil command string for model and firmware version query
   	unsigned i;
 
@@ -563,7 +586,8 @@ void GalilController::connected(void)
 	        //Deliver and start the code on controller
 		GalilStartController(code_file_, burn_program_, 0, thread_mask_);
 		}
-	//Use async polling by default
+	if (try_async_)
+	{
 	try	{
 		//If RIO gives error here... power cycle it
 		//Error here often appears as driver sending bad strings
@@ -586,6 +610,12 @@ void GalilController::connected(void)
 			cout << "RIO at address " << address_ << "may need power cycle " << endl;
 		cout << e << endl;
 		}
+	}
+	else
+	{
+		cout << "Requested synchronous poll " << model_ << " at " << address_ << endl;
+		async_records_ = false;
+	}
 }
 
 /** Reports on status of the driver
@@ -1770,7 +1800,7 @@ asynStatus GalilController::processDeferredMovesInGroup(int coordsys, char *axes
            {
            sprintf(mesg, "%s begin failure coordsys %c", functionName, coordName);
            //Set controller error mesg monitor
-           setStringParam(GalilCtrlError_, mesg);
+		   setCtrlError(mesg);
            status = asynError;
            break;  //Something went wrong
            }
@@ -2545,17 +2575,18 @@ void GalilController::processUnsolicitedMesgs(void)
 {
    char *charstr;		//The current token
    GalilAxis *pAxis;	 	//GalilAxis
-   char rawbuf[MAX_MESSAGE_LEN];//Unsolicited mesg buf
-   char mesg[MAX_MESSAGE_LEN];	//The message
+   char rawbuf[MAX_MESSAGE_LEN * 8];//Unsolicited message(s) buffer
+   char mesg[MAX_MESSAGE_LEN];	//An individual message
    char axisName;		//Axis number message is for
    int value;			//The value contained in the message
    char *tokSave = NULL;	//Remaining tokens
 
-   //Collect unsolicited message from controller
-   strcpy(rawbuf, gco_->message(0).c_str());
+   //Collect unsolicted message(s)   
+   strncpy(rawbuf, gco_->message(0).c_str(), sizeof(rawbuf));
+   rawbuf[sizeof(rawbuf)-1] = '\0';
 
-   //Break message into tokens
-   charstr = epicsStrtok_r(rawbuf, " \n", &tokSave);
+   //Break message into tokens: name value name value    etc.
+   charstr = epicsStrtok_r(rawbuf, " \r\n", &tokSave);
    while (charstr != NULL)
       {
       //Determine axis message is for
@@ -2567,7 +2598,7 @@ void GalilController::processUnsolicitedMesgs(void)
       //Retrieve GalilAxis instance for the correct axis
       pAxis = getAxis(axisName - AASCII);
       //Retrieve the value
-      charstr = epicsStrtok_r(NULL, " \n", &tokSave);
+      charstr = epicsStrtok_r(NULL, " \r\n", &tokSave);
       if (charstr != NULL && pAxis)
          {
          value = atoi(charstr);
@@ -2599,7 +2630,7 @@ void GalilController::processUnsolicitedMesgs(void)
          }
 
       //Retrieve next mesg
-      charstr = epicsStrtok_r(NULL, " \n", &tokSave);
+      charstr = epicsStrtok_r(NULL, " \r\n", &tokSave);
       }
 }
 
@@ -2842,7 +2873,7 @@ asynStatus GalilController::writeReadController(const char *caller)
 		std::size_t found = e.find("TC1 returned \"");
 		std::string errmsg = e.substr(found + 14, e.size()-found-14-2);
 		//Set controller error mesg monitor
-		setStringParam(GalilCtrlError_, errmsg.c_str());
+		setCtrlError(errmsg.c_str());
 		//Inc exception counter
 		ex_count++;
 		//flag error
@@ -3644,13 +3675,24 @@ asynStatus GalilController::drvUserDestroy(asynUser *pasynUser)
       }
 }
 
+/** Record an error message, and also display to ioc window
+  * \param[in] mesg      	 Error message
+  */
+void GalilController::setCtrlError(const char* mesg)
+{
+	std::cout << mesg << std::endl;   // or maybe use errlogSevPrintf() ?
+	setStringParam(0, GalilCtrlError_, mesg);
+}
+
+
 //IocShell functions
 
 /** Creates a new GalilController object.
   * Configuration command, called directly or from iocsh
   * \param[in] portName          The name of the asyn port that will be created for this driver
   * \param[in] address      	 The name or address to provide to Galil communication library
-  * \param[in] updatePeriod	 The time in ms between datarecords.  Async if controller + bus supports it, otherwise is polled/synchronous.
+  * \param[in] updatePeriod	     The time in ms between datarecords.  Async if controller + bus supports it, otherwise is polled/synchronous.
+  *                              If (updatePeriod < 0), polled/synchronous at abs(updatePeriod) is done regardless of bus type
   */
 extern "C" int GalilCreateController(const char *portName, const char *address, int updatePeriod)
 {
