@@ -14,6 +14,7 @@ include $(TOP)/configure/CONFIG
 #----------------------------------------------------
 # If <anyname>.db template is not named <anyname>*.template add
 # <anyname>_template = <templatename>
+DB += galil_userdef_records8.template
 
 # Galil program code for e.g. homing, installed to $(TOP)/gmc
 
@@ -34,3 +35,5 @@ include $(TOP)/configure/RULES
 #----------------------------------------
 #  ADD RULES AFTER THIS LINE
 
+galil_userdef_records8.template ../O.Common/galil_userdef_records8.template : $(TOP)/GalilSup/Db/galil_userdef_records.template $(TOP)/GalilSup/Db/galil_userdef_records8.substitutions
+	$(MSI) -o $@ -S $(TOP)/GalilSup/Db/galil_userdef_records8.substitutions $(TOP)/GalilSup/Db/galil_userdef_records.template
